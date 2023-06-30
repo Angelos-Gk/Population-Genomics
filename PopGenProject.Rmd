@@ -1,0 +1,383 @@
+---
+title: "Population Genomics Project"
+author: "Angelos Galanopoulos"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+    number_sections: yes
+    theme: darkly
+    highlight: breezedark
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+---
+
+<style>
+p {
+  text-indent: 1.5em;
+}
+</style>
+
+
+# Introduction
+
+<div align="justify">
+
+<p>In this assignment, I explore the SNPs of chromosome 6 (chrVI) of the three-spined stickleback (*Gasterosteus aculeatus* Linnaeus, 1758) and other metadata (body length,weight)
+in relation to the habitat (either brackish water or freshwater) of 8 different populations.</p>
+
+<p>The dataset is part of the Raeymaekers et al. (2017). The VCF file contains **192 samples** from three-spined stickleback. There are **eight populations** from **brackish and freshwater** habitats. Populations L01, L02, L03, L05 come from brackish water while populations L07, L09, L10, L12 come from freshwater.From each site approximately 24 individuals have been sequenced using WGS. Samples have been taken from the Belgian-Dutch lowlands.</p>
+
+<p>In this file we have removed monomorphic SNPs to exclude all sites at which no alternative alleles are called for any of the samples and all sites at which only alternative alleles are called (all samples differ from the reference genome). Furthermore, multiallelic and low allele frequency (AF < 0.01) SNPs have also been removed.</p><p>The questions that I address in this assignment are:</p>
+
+</div>
+
+*  Is there a significance difference in the body weight between the two habitats?
+*  Is there a significance difference in the body length between the two habitats?
+*  Are the genetic differences between habitats (based of the Fst values) significant?
+*  What is the percent heterozygocity in each population/habitat?
+*  Do the different populations cluster together based on their respective habitat?
+
+# Methods
+
+<div align="justify">
+
+## Getting started
+<p> 
+The VCF file contains SNPs from all across the three-spined stickleback's genome. In order to start the analysis, we first subset the VCF to keep only the SNPs located on the sixth chromosome (chrVI) using the following linux command:</p>
+
+```{r, subset, engine = 'bash', eval = FALSE}
+zcat ThreeSpined_biallelicAFmonFMFPASS_SNP.vcf.gz | awk '/^##|^#CHROM|^chrVI\t/' > ChromosomeVI.vcf
+```
+
+We can confirm that we only selected the VI chromosome's variants (and not for example variants from chromosomes VII or VIII) using the command:
+
+```{r, verification, engine = 'bash', eval = FALSE}
+bcftools query -f '%CHROM\n' ChromosomeVI.vcf | uniq
+```
+
+whose output should be "chrVI".
+
+Then we move to R to set the working directory:
+
+```{r setup}
+knitr::opts_knit$set(root.dir = 'C:/Users/angel/Desktop/Applied Bioinformatics/2nd Semester/Population Genomics/PopulationGenomics_Assignment/')
+```
+
+import the required libraries:
+
+```{r, libraries, results = FALSE, message = FALSE, warning = FALSE}
+library("data.table")
+library("vcfR")
+library("devtools")
+library("DEMEtics")
+library("StAMPP")
+library("gridExtra")
+library("readr")
+library("ggplot2")
+library("adegenet")
+library("ape")
+```
+
+and finally import the subsetted data:
+
+```{r, insertion, results=FALSE,message=FALSE,warning=FALSE}
+# Specify the path to the subsetted VCF file
+vcf_file <- "C:/Users/angel/Desktop/Applied Bioinformatics/2nd Semester/Population Genomics/PopulationGenomics_Assignment/data/ChromosomeVI.vcf"
+
+# Read the VCF file
+vcf <- read.vcfR(vcf_file)
+
+#load the info files
+SampleInfo <- read.table(file = "data/SamplesInfo.txt", sep = "\t", header=TRUE)
+SitesInfo <- read.table(file = "data/SitesInfo.txt", sep = "\t", header=TRUE)
+```
+
+## Exploring the data
+
+We can now inspect the data and the info files.
+
+```{r, inspection}
+head(vcf)
+head(SampleInfo)
+head(SitesInfo)
+```
+
+```{r, str}
+str(vcf) # this shows the structure of the file/object and can display the contents of it
+```
+
+```{r, first10}
+vcf@fix[1:10,1:5] # this shows the alleles for the first 10 SNPs
+```
+
+We start the analysis by creating a few plots so that we can get an idea about our data.
+
+### Visual overview of the SNP data
+
+In order to explore the data, we need the reference genome. I downloaded the stickleback
+whole genome assembly v5 from this website (https://stickleback.genetics.uga.edu/downloadData/).
+
+We can now explore the VCF file in a visual way with the following commands:
+
+```{r, chrom, results = FALSE, message=FALSE,warning=FALSE}
+dna_file <- read.dna("data/stickleback_v5_assembly.fa",format="fasta")
+# This reads in the underlying genome file
+
+chrom <- create.chromR(name="chrVI", vcf=vcf, seq=dna_file, verbose=TRUE)
+# This function combines the sequence and variation information
+
+chrom <- proc.chromR(chrom, verbose = TRUE,win.size=10) 
+# This function calls several helper functions to process the variant,
+# sequence and  annotation data for visualization. Choosing win.size=10
+# summarizes the data over 10bp windows
+```
+
+```{r, plot}
+#plot(chrom)
+```
+
+```{r, chromqc}
+#chromoqc(chrom)
+```
+
+### Allele depths
+
+To extract the allele depths for each sample (DP field of VCF) and plot its distribution, we use the following command.
+
+```{r, depth}
+#quick check read depth distribution per individual
+dp <- extract.gt(vcf, element='DP', as.numeric=TRUE)
+
+boxplot(dp, las=3, col=c("#C0C0C0", "#808080"), ylab="Read Depth (DP)", cex=0.4, cex.axis=0.5,xlim=c(1,10))
+```
+
+### genlight objects
+
+Continuing the analysis, we convert the vcf data to a genlight object for ease of use:
+
+```{r, genlight}
+genlight.data <- vcfR2genlight(vcf)
+```
+
+We can now check some info in the genlight object
+
+```{r, numSNPs}
+indNames(genlight.data) #individual names instead of genlight.data@ind.names
+nLoc(genlight.data) # number of SNPs
+```
+
+We can add information about the ploidy of this species.
+
+```{r, ploidy}
+ploidyvalues <- rep(2,192)
+ploidy(genlight.data) <- ploidyvalues
+```
+
+We can add information about the site each sample comes from.
+
+```{r, pops}
+pops <- as.factor(c(SampleInfo$Site))
+pop(genlight.data) <- pops
+```
+
+```{r, matrix}
+as.matrix(genlight.data)[20:30,1:5]
+```
+
+A graphical overview of alternative alleles and missing data (in white) can be obtained with the glPlot function:
+
+```{r, glPlot}
+#glPlot(genlight.data, posi="topleft")
+```
+
+To assess the position of the polymorphic sites within a chromosome graphically, we can use
+
+```{r, snpposi}
+#snpposi.plot(position(genlight.data[,genlight.data$chromosome=="chrVI"]),genome.size=3000000,codon=FALSE)
+```
+
+### Allele frequency spectrum
+
+```{r, counts}
+#plot total AFS of the dataset
+mySum <- glSum(genlight.data, alleleAsUnit = TRUE) # Computes the sum of second alleles for each SNP.
+barplot(table(mySum), col="blue", space=0, xlab="Allele counts",
+main="Distribution of ALT allele counts in total dataset")
+```
+
+## Body length ~ habitat correlation
+
+In order to infer if there is a significant difference in body length between the two habitats,
+we first calculate the **mean and median (not affected by outliers) body length** for each habitat: 
+
+```{r, length_stats}
+#calculate the mean body length for each habitat
+#brackish
+mean(SampleInfo$Length.cm.[SampleInfo$Site %in% c("L01", "L02", "L03", "L05")])
+#fresh
+mean(SampleInfo$Length.cm.[SampleInfo$Site %in% c("L07", "L09", "L10", "L012")])
+#calculate the median body length for each habitat
+#brackish
+median(SampleInfo$Length.cm.[SampleInfo$Site %in% c("L01", "L02", "L03", "L05")])
+#fresh
+median(SampleInfo$Length.cm.[SampleInfo$Site %in% c("L07", "L09", "L10", "L012")])
+```
+We can see that there is a very small difference in mean and median body length between the two habitats.
+
+Then, we create a comparative boxplot:
+
+```{r, length_boxplots}
+#Length boxplots for each habitat
+groups <- c("brackish","fresh")
+brackishL <- c(SampleInfo$Length.cm.[SampleInfo$Site %in% c("L01", "L02", "L03", "L05")])
+freshL <- c(SampleInfo$Length.cm.[SampleInfo$Site %in% c("L07", "L09", "L10", "L012")])
+data <- data.frame(
+  Group = factor(c(rep("brackish", length(brackishL)), rep("fresh", length(freshL)))),
+  Value = c(brackishL, freshL)
+)
+ggplot(data, aes(x = Group, y = Value)) +
+  geom_boxplot() +
+  ylab("Length") +
+  xlab("Group")
+```
+
+Finally, we perform a Wilcoxon test to see if this difference in length is significant:
+
+```{r, length_wilcoxon}
+resultL <- wilcox.test(brackishL, freshL)
+print(resultL)
+```
+
+We can see that the difference in length is not significant according to this test.
+
+## Body weight ~ habitat correlation
+
+We do the same as above for the body weight.
+
+```{r, weight_stats}
+#calculate the mean body weight for each habitat
+#brackish
+mean(SampleInfo$Body_weight.g.[SampleInfo$Site %in% c("L01", "L02", "L03", "L05")], na.rm = TRUE)
+#fresh
+mean(SampleInfo$Body_weight.g.[SampleInfo$Site %in% c("L07", "L09", "L10", "L012")], na.rm = TRUE)
+#calculate the median body weight for each habitat
+#brackish
+median(SampleInfo$Body_weight.g.[SampleInfo$Site %in% c("L01", "L02", "L03", "L05")],na.rm = TRUE)
+#fresh
+median(SampleInfo$Body_weight.g.[SampleInfo$Site %in% c("L07", "L09", "L10", "L012")])
+```
+
+We can see that there is a difference in mean and median body length between the two habitats.
+
+```{r, weight_boxplots}
+#Weight boxplots for each habitat
+groups <- c("brackish","fresh")
+brackishW <- c(SampleInfo$Body_weight.g.[SampleInfo$Site %in% c("L01", "L02", "L03", "L05")])
+freshW <- c(SampleInfo$Body_weight.g.[SampleInfo$Site %in% c("L07", "L09", "L10", "L012")])
+data <- data.frame(
+  Group = factor(c(rep("brackish", length(brackishW)), rep("fresh", length(freshW)))),
+  Value = c(brackishW, freshW)
+)
+ggplot(data, aes(x = Group, y = Value)) +
+  geom_boxplot() +
+  ylab("Weight") +
+  xlab("Group")
+```
+
+Finally, we perform a Wilcoxon test to see if this difference in weight is significant:
+
+```{r, weight_wilcoxon}
+resultW <- wilcox.test(brackishW, freshW)
+print(resultW)
+```
+
+We can see that the difference in weight is not significant according to this test.
+
+## Genetic differentiantion
+
+Calculating genetic differentiation with the full set of SNPs takes too much time. Thus, we randomly select 50000 of these 158868 SNPs. 
+
+```{r, reduction}
+genlight.data.reduced <- genlight.data[,sample(1:158868, 50000)]
+genlight.data.reduced #checking basic information
+```
+
+We calculate the Fst values from this reduced set of SNPs with the ‘StAMPP’ package:
+
+```{r, fst}
+FstValues <- stamppFst(genlight.data.reduced, nboots = 100, percent = 95)
+```
+
+```{r, message=FALSE}
+FstValues$Fsts
+FstValues$Pvalues
+```
+
+We can visualize the genetic differentiation in a neighbor-joining tree:
+
+```{r, tree}
+#library(ape) # required package to visualize the tree using the "nj" function
+    
+Tree <- nj(as.dist(FstValues$Fsts)) # conversion of the Fst values to a tree object
+  
+plot.phylo(Tree,type="unrooted",show.tip.label=TRUE,edge.width=3,rotate.tree=90)
+add.scale.bar(length = 0.05,lwd=2,x=0.25,y=0.15,col="black") 
+```
+
+## Heterozygosity
+
+To estimate heterozygosities for each population, we can use the Hs function of the package ‘adegenet’. This function works with the genind data class. Thus, First we convert our VCF file to a genind object:
+
+```{r, genind}
+# Convert the VCF file that we work with 'SeagrassSNPdata.vcf' to a genind object
+genind.data <- vcfR2genind(vcf)
+```
+
+We can specify our populations:
+
+```{r, message=FALSE}
+pops <- as.factor(c(SampleInfo$Site))
+pop(genind.data) <- pops
+```
+
+Then we can apply the Hs function on these data to obtain the average heterozygosity for each population:
+
+```{r, hs}
+Hs(genind.data)
+```
+
+## Principal component analysis
+
+We can perform a PCA directly on our genlight data
+
+```{r, pca}
+pca.1 <- glPca(genlight.data.reduced, nf=2)
+
+#when nf=2 (number of retained factors) is not specified, the function displays the barplot ofeigenvalues of the analysis and asks the user for a number of retained principal components.
+    
+pca.1$eig[1]/sum(pca.1$eig) # proportion of variation explained by 1st principal component
+```
+
+```{r, eig}
+pca.1$eig[2]/sum(pca.1$eig) # proportion of variation explained by 2nd principal component
+```
+
+```{r, pcaplot}
+# plot the samples along the first two principle components showing groups
+s.class(pca.1$scores, pop(genlight.data.reduced), col=colors()[c(131,132,133,134)])
+```
+
+# Results and Discussion
+
+* No significant difference in body length/weight between habitats, although brackish a bit heavier.
+
+* All Fst<0.15, although the L10 population is way more different than the rest (high Fst even when compared to same habitat populations).
+
+* Heterozygosity pretty uniform across all population, population L10 a bit lower heterozygosity in comparison to the rest of the populations.
+
+* Clustering from neighbor-joining tree and PCA are similar, with the L10 population being very different genetically from the rest of the populations.
+
