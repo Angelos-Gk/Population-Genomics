@@ -26,22 +26,22 @@ p {
 
 <div align="justify">
 
-<p>In this assignment, I explore the SNPs of chromosome 6 (chrVI) of the three-spined stickleback (*Gasterosteus aculeatus* Linnaeus, 1758) and other metadata (body length,weight)
+<p>In this assignment, we explore the SNPs of chromosome 6 (chrVI) of the three-spined stickleback (*Gasterosteus aculeatus* Linnaeus, 1758) and other metadata (body length,weight)
 in relation to the habitat (either brackish water or freshwater) of 8 different populations.</p>
 
-<p>The dataset is part of the Raeymaekers et al. (2017). The VCF file contains **192 samples** from three-spined stickleback. There are **eight populations** from **brackish and freshwater** habitats. Populations L01, L02, L03, L05 come from brackish water while populations L07, L09, L10, L12 come from freshwater.From each site approximately 24 individuals have been sequenced using WGS. Samples have been taken from the Belgian-Dutch lowlands.</p>
+<p>The dataset is part of the Raeymaekers et al. (2017). The VCF file contains **192 samples** from three-spined stickleback populations. There are **eight populations** from **brackish and freshwater** habitats. Populations L01, L02, L03, L05 come from brackish water while populations L07, L09, L10, L12 come from freshwater.From each site approximately 24 individuals have been sequenced using WGS. Samples have been taken from the Belgian-Dutch lowlands.</p>
 
-<p>In this file we have removed monomorphic SNPs to exclude all sites at which no alternative alleles are called for any of the samples and all sites at which only alternative alleles are called (all samples differ from the reference genome). Furthermore, multiallelic and low allele frequency (AF < 0.01) SNPs have also been removed.</p><p>The questions that I address in this assignment are:</p>
+<p>In this VCF file we have removed monomorphic SNPs to exclude all sites at which no alternative alleles are called for any of the samples and all sites at which only alternative alleles are called (all samples differ from the reference genome). Furthermore, multiallelic and low allele frequency (AF < 0.01) SNPs have also been removed.</p><p>The questions that I address in this assignment are:</p>
 
 </div>
 
-*  Is there a significance difference in the body weight between the two habitats?
-*  Is there a significance difference in the body length between the two habitats?
-*  Are the genetic differences between habitats (based of the Fst values) significant?
-*  What is the percent heterozygocity in each population/habitat?
-*  Do the different populations cluster together based on their respective habitat?
+*  **Is there a significant difference in the body weight between the two habitats?**
+*  **Is there a significant difference in the body length between the two habitats?**
+*  **Are the genetic differences between habitats (based of the Fst values) significant?**
+*  **What is the percent heterozygocity in each population/habitat?**
+*  **Do the different populations cluster together based on their respective habitat?**
 
-# Methods
+# Methods and Results
 
 <div align="justify">
 
@@ -137,19 +137,18 @@ chrom <- proc.chromR(chrom, verbose = TRUE,win.size=10)
 ```
 
 ```{r, plot}
-#plot(chrom)
+plot(chrom)
 ```
 
 ```{r, chromqc}
-#chromoqc(chrom)
+chromoqc(chrom)
 ```
 
 ### Allele depths
 
-To extract the allele depths for each sample (DP field of VCF) and plot its distribution, we use the following command.
+To extract the allele depths for each sample (DP field of VCF) and plot its distribution, we use the following command:
 
 ```{r, depth}
-#quick check read depth distribution per individual
 dp <- extract.gt(vcf, element='DP', as.numeric=TRUE)
 
 boxplot(dp, las=3, col=c("#C0C0C0", "#808080"), ylab="Read Depth (DP)", cex=0.4, cex.axis=0.5,xlim=c(1,10))
@@ -166,7 +165,7 @@ genlight.data <- vcfR2genlight(vcf)
 We can now check some info in the genlight object
 
 ```{r, numSNPs}
-indNames(genlight.data) #individual names instead of genlight.data@ind.names
+indNames(genlight.data) #individual names 
 nLoc(genlight.data) # number of SNPs
 ```
 
@@ -191,13 +190,13 @@ as.matrix(genlight.data)[20:30,1:5]
 A graphical overview of alternative alleles and missing data (in white) can be obtained with the glPlot function:
 
 ```{r, glPlot}
-#glPlot(genlight.data, posi="topleft")
+glPlot(genlight.data, posi="topleft")
 ```
 
-To assess the position of the polymorphic sites within a chromosome graphically, we can use
+To assess the position of the polymorphic sites within a chromosome graphically, we can use:
 
 ```{r, snpposi}
-#snpposi.plot(position(genlight.data[,genlight.data$chromosome=="chrVI"]),genome.size=3000000,codon=FALSE)
+snpposi.plot(position(genlight.data[,genlight.data$chromosome=="chrVI"]),genome.size=3000000,codon=FALSE)
 ```
 
 ### Allele frequency spectrum
@@ -306,7 +305,7 @@ genlight.data.reduced <- genlight.data[,sample(1:158868, 50000)]
 genlight.data.reduced #checking basic information
 ```
 
-We calculate the Fst values from this reduced set of SNPs with the ‘StAMPP’ package:
+The metric that we calculate to measure genetic differentiation between the populations are the Fst values. We calculate the Fst values from this reduced set of SNPs with the ‘StAMPP’ package:
 
 ```{r, fst}
 FstValues <- stamppFst(genlight.data.reduced, nboots = 100, percent = 95)
@@ -337,14 +336,14 @@ To estimate heterozygosities for each population, we can use the Hs function of 
 genind.data <- vcfR2genind(vcf)
 ```
 
-We can specify our populations:
+We specify our populations:
 
 ```{r, message=FALSE}
 pops <- as.factor(c(SampleInfo$Site))
 pop(genind.data) <- pops
 ```
 
-Then we can apply the Hs function on these data to obtain the average heterozygosity for each population:
+Then we apply the Hs function on these data to obtain the average heterozygosity for each population:
 
 ```{r, hs}
 Hs(genind.data)
@@ -352,7 +351,7 @@ Hs(genind.data)
 
 ## Principal component analysis
 
-We can perform a PCA directly on our genlight data
+We can also perform a PCA directly on our genlight data:
 
 ```{r, pca}
 pca.1 <- glPca(genlight.data.reduced, nf=2)
@@ -371,13 +370,18 @@ pca.1$eig[2]/sum(pca.1$eig) # proportion of variation explained by 2nd principal
 s.class(pca.1$scores, pop(genlight.data.reduced), col=colors()[c(131,132,133,134)])
 ```
 
-# Results and Discussion
+# Discussion
 
-* No significant difference in body length/weight between habitats, although brackish a bit heavier.
+In this analysis, we measured the differences between the populations of two different habitats (both genetic and morphological differences). The main points that we got from our analysis are:
 
-* All Fst<0.15, although the L10 population is way more different than the rest (high Fst even when compared to same habitat populations).
+* For the morphological analysis, there is no significant difference in body length/weight between habitats, although brackish water fish seem to be bit heavier.
 
-* Heterozygosity pretty uniform across all population, population L10 a bit lower heterozygosity in comparison to the rest of the populations.
+* For the genetic analysis, all Fst p-values are very close to 0 meaning that they are significant.
 
-* Clustering from neighbor-joining tree and PCA are similar, with the L10 population being very different genetically from the rest of the populations.
+* All Fst values seem to be < 0.15 (meaning that the populations are not that much genetically differentiated), although the L10 population appears more different than the rest (higher Fst values even when compared to same habitat populations).
+
+* Heterozygosity appears to be pretty uniform across all populations, with population L10 displaying a bit lower heterozygosity in comparison to the rest of the populations.
+
+* The clustering from both neighbor-joining tree and PCA are similar (verifying each other), with the L10 population being very different genetically from the rest of the populations.
+Brackish water populations (L01,L02,L03,L05) cluster together in a very compact form while 3 out of the 4 freshwater populations (L07,L09,L12) cluster more losely together, with the L07 population clustering closer to the brackish water populations rather than the freshwater ones.
 
